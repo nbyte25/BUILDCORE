@@ -28,6 +28,11 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>;
 }
 
+const LOCAL_AUTH_KEYS = {
+  USER: 'buildcore_auth_user_v1',
+  PROFILE: 'buildcore_auth_profile_v1',
+};
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -76,7 +81,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           console.error('Unexpected error loading auth session:', err);
         }
       } else {
-        console.info('Supabase credentials not configured in environment variables.');
+        // Local storage session fallback for development/demo mode
+        try {
+          const storedUser = localStorage.getItem(LOCAL_AUTH_KEYS.USER);
+          const storedProfile = localStorage.getItem(LOCAL_AUTH_KEYS.PROFILE);
+          if (storedUser && isMounted) {
+            const parsedUser = JSON.parse(storedUser) as User;
+            setUser(parsedUser);
+            if (storedProfile) {
+              setProfile(JSON.parse(storedProfile) as Profile);
+            } else {
+              await fetchProfile(parsedUser.id, parsedUser.email);
+            }
+          }
+        } catch (err) {
+          console.error('Error loading local mock auth session:', err);
+        }
       }
 
       if (isMounted) setLoading(false);
@@ -107,12 +127,56 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, []);
 
-  // 1. Sign In with real Supabase Auth
+  // 1. Sign In
   const signIn = async (email: string, password: string) => {
     if (!isSupabaseConfigured) {
-      const err = new Error('Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment.');
-      showToast('Configuration Required', err.message, 'error');
-      throw err;
+      // Local fallback auth
+      const cleanEmail = email.trim().toLowerCase();
+      let role: UserRole = 'customer';
+      let name = cleanEmail.split('@')[0];
+      name = name.charAt(0).toUpperCase() + name.slice(1);
+
+      if (cleanEmail.includes('admin')) {
+        role = 'admin';
+        name = 'Principal Engineer (Admin)';
+      } else if (cleanEmail.includes('manager')) {
+        role = 'manager';
+        name = 'Project Manager';
+      }
+
+      const mockId = 'usr-' + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+      const mockUser = {
+        id: mockId,
+        app_metadata: {},
+        user_metadata: { full_name: name },
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+        email: cleanEmail,
+        phone: '',
+        role: 'authenticated'
+      } as unknown as User;
+
+      const mockProfile: Profile = {
+        id: mockId,
+        full_name: name,
+        email: cleanEmail,
+        role: role,
+        active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      localStorage.setItem(LOCAL_AUTH_KEYS.USER, JSON.stringify(mockUser));
+      localStorage.setItem(LOCAL_AUTH_KEYS.PROFILE, JSON.stringify(mockProfile));
+
+      // Also ensure profile exists in db
+      await db.updateProfile(mockId, mockProfile);
+
+      setUser(mockUser);
+      setProfile(mockProfile);
+      setSession(null);
+
+      return { user: mockUser, session: null };
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -134,12 +198,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return data;
   };
 
-  // 2. Sign Up with real Supabase Auth
+  // 2. Sign Up
   const signUp = async (email: string, password: string, metadata: SignUpMetadata) => {
     if (!isSupabaseConfigured) {
-      const err = new Error('Supabase is not configured. Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment.');
-      showToast('Configuration Required', err.message, 'error');
-      throw err;
+      const cleanEmail = email.trim().toLowerCase();
+      const mockId = 'usr-' + btoa(cleanEmail).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+      const mockUser = {
+        id: mockId,
+        app_metadata: {},
+        user_metadata: {
+          full_name: metadata.full_name,
+          company_name: metadata.company_name,
+          phone: metadata.phone
+        },
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+        email: cleanEmail,
+        phone: metadata.phone || '',
+        role: 'authenticated'
+      } as unknown as User;
+
+      const mockProfile: Profile = {
+        id: mockId,
+        full_name: metadata.full_name,
+        company_name: metadata.company_name,
+        phone: metadata.phone,
+        email: cleanEmail,
+        role: 'customer',
+        active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      localStorage.setItem(LOCAL_AUTH_KEYS.USER, JSON.stringify(mockUser));
+      localStorage.setItem(LOCAL_AUTH_KEYS.PROFILE, JSON.stringify(mockProfile));
+
+      await db.updateProfile(mockId, mockProfile);
+
+      setUser(mockUser);
+      setProfile(mockProfile);
+      setSession(null);
+
+      return { user: mockUser, session: null };
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -162,7 +262,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (data.user) {
       setUser(data.user);
       setSession(data.session);
-      // Profile is auto-created by PostgreSQL trigger handle_new_user()
       await fetchProfile(data.user.id, data.user.email);
     }
 
@@ -177,6 +276,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch (err) {
         console.error('Error during Supabase sign out:', err);
       }
+    } else {
+      localStorage.removeItem(LOCAL_AUTH_KEYS.USER);
+      localStorage.removeItem(LOCAL_AUTH_KEYS.PROFILE);
     }
     setUser(null);
     setProfile(null);
@@ -187,9 +289,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // 4. Password Reset
   const resetPassword = async (email: string) => {
     if (!isSupabaseConfigured) {
-      const err = new Error('Supabase is not configured.');
-      showToast('Configuration Required', err.message, 'error');
-      throw err;
+      showToast('Password Reset Dispatched', `[Demo Mode] Password reset instructions simulated for ${email}`, 'success');
+      return;
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
@@ -204,18 +305,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     showToast('Password Reset Dispatched', `Instructions have been sent to ${email}`, 'success');
   };
 
-  // 5. Update Profile (customer updating their own profile details)
+  // 5. Update Profile
   const updateUserProfile = async (updates: Partial<Profile>) => {
     if (!user) {
       throw new Error('User must be authenticated to update profile.');
     }
 
-    // Never allow updating role from client side
     const safeUpdates = { ...updates };
     delete (safeUpdates as any).role;
 
     const updated = await db.updateProfile(user.id, safeUpdates);
     setProfile(updated);
+    if (!isSupabaseConfigured) {
+      localStorage.setItem(LOCAL_AUTH_KEYS.PROFILE, JSON.stringify(updated));
+    }
     showToast('Profile Saved', 'Your profile details have been updated.', 'success');
   };
 

@@ -74,12 +74,37 @@ export const LoginPage: React.FC = () => {
           <p className="text-xs text-slate-400">Access project progress, tender quotes, and portal controls.</p>
         </div>
 
-        {/* Database Status Info */}
+        {/* Database Status Info & Demo Mode */}
         {!isSupabaseConfigured && (
-          <div className="p-3 rounded-xl border bg-amber-950/40 border-amber-800 text-amber-300 text-xs flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Supabase credentials not yet configured in environment variables.</span>
+          <div className="p-3.5 rounded-xl border bg-amber-950/40 border-amber-800/80 text-amber-200 text-xs space-y-2.5">
+            <div className="flex items-center gap-2 text-amber-400 font-semibold">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span>Offline / Demo Mode Active</span>
+            </div>
+            <p className="text-[11px] text-amber-300/80 leading-relaxed">
+              Supabase credentials not yet supplied in environment variables. You can sign in using one of the demo presets below or enter any email/password.
+            </p>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('admin@buildcore.co.ke');
+                  setPassword('admin123456');
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[11px] font-bold transition-colors cursor-pointer text-center"
+              >
+                Fill Admin (NCA 1)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('client@buildcore.co.ke');
+                  setPassword('client123456');
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[11px] font-bold transition-colors cursor-pointer text-center"
+              >
+                Fill Client Account
+              </button>
             </div>
           </div>
         )}
