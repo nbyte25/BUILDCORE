@@ -1,0 +1,6 @@
+{
+  "name": "BuildCore Construction & Engineering",
+  "description": "Production-grade construction and civil engineering platform with Supabase auth, project portfolio, dynamic services, multi-step tender/quote engine, client portal, and full admin command center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
